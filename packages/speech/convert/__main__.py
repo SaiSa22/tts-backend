@@ -103,7 +103,8 @@ def main(args):
                           Key=status_filename, 
                           Body=json.dumps(status_data, indent=2), 
                           ACL='public-read', 
-                          ContentType='application/json')
+                          ContentType='application/json',
+                          CacheControl='no-cache, no-store, must-revalidate') 
 
         # 5. Return Success
         return {

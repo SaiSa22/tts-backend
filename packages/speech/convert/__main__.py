@@ -2,11 +2,14 @@ import os
 import boto3
 import uuid
 import requests
-import json  # Added JSON library to parse the status file
+import json
 
 def main(args):
     # 1. Extract Text
     text = args.get("text", "Hello World")
+    
+    # Default to Jenny if no voice is chosen
+    selected_voice = args.get("voice", "en-US-JennyNeural") 
     
     # 2. Define headers
     response_headers = {
@@ -34,7 +37,7 @@ def main(args):
 
         ssml_body = f"""
         <speak version='1.0' xml:lang='en-US'>
-            <voice xml:lang='en-US' xml:gender='Female' name='en-US-JennyNeural'>
+            <voice xml:lang='en-US' xml:gender='Female' name='{selected_voice}'>
                 {text}
             </voice>
         </speak>
@@ -60,9 +63,8 @@ def main(args):
                                 aws_secret_access_key=spaces_secret)
 
         # ---------------------------------------------------------
-        # CHANGE 1: New Filename Format
+        # CRITICAL FIX: Ensure UUID is in the filename
         # ---------------------------------------------------------
-        # We start with 'daily_audio-' followed by a unique ID to avoid caching issues
         filename = f"daily_audio-{uuid.uuid4()}.mp3"
         
         # Upload the Audio File
@@ -72,33 +74,34 @@ def main(args):
                           ACL='public-read', 
                           ContentType='audio/mpeg')
 
+        # Create the public URL
         file_url = f"https://{bucket_name}.{spaces_region}.digitaloceanspaces.com/{filename}"
 
         # ---------------------------------------------------------
-        # CHANGE 2: Update status.json
+        # UPDATE STATUS.JSON
         # ---------------------------------------------------------
         status_filename = "status.json"
         
         try:
-            # A. Try to download the existing status.json
+            # Download existing status.json
             s3_response = client.get_object(Bucket=bucket_name, Key=status_filename)
             file_content = s3_response['Body'].read().decode('utf-8')
             status_data = json.loads(file_content)
         except Exception:
-            # B. If file doesn't exist (or is corrupt), start fresh
+            # If file doesn't exist, start fresh
             status_data = {"version": 0, "audio_url": ""}
 
-        # C. Increment version and update URL
+        # Update Version and URL
         current_version = status_data.get("version", 0)
         status_data["version"] = current_version + 1
-        status_data["audio_url"] = file_url
+        status_data["audio_url"] = file_url  # This will now contain the UUID
 
-        # D. Upload the updated status.json back to Spaces
+        # Save status.json back to Spaces
         client.put_object(Bucket=bucket_name, 
                           Key=status_filename, 
-                          Body=json.dumps(status_data, indent=2), # Save as pretty JSON
+                          Body=json.dumps(status_data, indent=2), 
                           ACL='public-read', 
-                          ContentType='application/json') # Content is JSON, even if ext is .yml
+                          ContentType='application/json')
 
         # 5. Return Success
         return {

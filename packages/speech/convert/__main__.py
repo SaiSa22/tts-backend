@@ -5,13 +5,12 @@ import requests
 import json
 
 def main(args):
-    # 1. Extract Text
+    # 1. Extract Input
     text = args.get("text", "Hello World")
-    
     # Default to Jenny if no voice is chosen
     selected_voice = args.get("voice", "en-US-JennyNeural") 
     
-    # 2. Define headers
+    # 2. Define headers (Only Content-Type, let DigitalOcean handle CORS)
     response_headers = {
         "Content-Type": "application/json"
     }
@@ -63,8 +62,9 @@ def main(args):
                                 aws_secret_access_key=spaces_secret)
 
         # ---------------------------------------------------------
-        # CRITICAL FIX: Ensure UUID is in the filename
+        # GENERATE UNIQUE FILENAME
         # ---------------------------------------------------------
+        # This creates names like: daily_audio-550e8400-e29b-41d4...mp3
         filename = f"daily_audio-{uuid.uuid4()}.mp3"
         
         # Upload the Audio File
@@ -74,7 +74,7 @@ def main(args):
                           ACL='public-read', 
                           ContentType='audio/mpeg')
 
-        # Create the public URL
+        # Define the Public URL for this specific new file
         file_url = f"https://{bucket_name}.{spaces_region}.digitaloceanspaces.com/{filename}"
 
         # ---------------------------------------------------------
@@ -83,20 +83,22 @@ def main(args):
         status_filename = "status.json"
         
         try:
-            # Download existing status.json
+            # Try to download the existing status.json to get the version number
             s3_response = client.get_object(Bucket=bucket_name, Key=status_filename)
             file_content = s3_response['Body'].read().decode('utf-8')
             status_data = json.loads(file_content)
         except Exception:
-            # If file doesn't exist, start fresh
+            # If file doesn't exist (or is corrupt/empty), start fresh
             status_data = {"version": 0, "audio_url": ""}
 
-        # Update Version and URL
+        # Increment Version
         current_version = status_data.get("version", 0)
         status_data["version"] = current_version + 1
-        status_data["audio_url"] = file_url  # This will now contain the UUID
+        
+        # CRITICAL: Update the URL to the NEW file we just created
+        status_data["audio_url"] = file_url
 
-        # Save status.json back to Spaces
+        # Upload the updated status.json back to Spaces
         client.put_object(Bucket=bucket_name, 
                           Key=status_filename, 
                           Body=json.dumps(status_data, indent=2), 

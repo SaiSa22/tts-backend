@@ -1,0 +1,18 @@
+targetNamespace: ''
+parameters: {}
+packages:
+  - name: speech
+    functions:
+      - name: convert
+        binary: false
+        main: ''
+        runtime: python:default
+        web: true
+        parameters: {}
+        environment:
+          AZURE_SPEECH_KEY: "${AZURE_SPEECH_KEY}"
+          AZURE_SPEECH_REGION: "${AZURE_SPEECH_REGION}"
+          SPACES_KEY: "${SPACES_KEY}"
+          SPACES_SECRET: "${SPACES_SECRET}"
+          SPACES_REGION: "${SPACES_REGION}"
+          SPACES_BUCKET: "${SPACES_BUCKET}"

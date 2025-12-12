@@ -75,12 +75,12 @@ def main(args):
         file_url = f"https://{bucket_name}.{spaces_region}.digitaloceanspaces.com/{filename}"
 
         # ---------------------------------------------------------
-        # CHANGE 2: Update status.yml
+        # CHANGE 2: Update status.json
         # ---------------------------------------------------------
-        status_filename = "status.yml"
+        status_filename = "status.json"
         
         try:
-            # A. Try to download the existing status.yml
+            # A. Try to download the existing status.json
             s3_response = client.get_object(Bucket=bucket_name, Key=status_filename)
             file_content = s3_response['Body'].read().decode('utf-8')
             status_data = json.loads(file_content)
@@ -93,7 +93,7 @@ def main(args):
         status_data["version"] = current_version + 1
         status_data["audio_url"] = file_url
 
-        # D. Upload the updated status.yml back to Spaces
+        # D. Upload the updated status.json back to Spaces
         client.put_object(Bucket=bucket_name, 
                           Key=status_filename, 
                           Body=json.dumps(status_data, indent=2), # Save as pretty JSON

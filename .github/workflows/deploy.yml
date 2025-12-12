@@ -1,0 +1,36 @@
+name: Deploy to DO Functions
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Install Serverless Extension
+        run: doctl serverless install
+
+      - name: Connect to Namespace
+        run: doctl serverless connect
+
+      - name: Inject Secrets into project.yml
+        # This replaces the ${...} placeholders with the real keys from the Vault
+        run: |
+          sed -i "s|\${AZURE_SPEECH_KEY}|${{ secrets.AZURE_SPEECH_KEY }}|g" project.yml
+          sed -i "s|\${AZURE_SPEECH_REGION}|${{ secrets.AZURE_SPEECH_REGION }}|g" project.yml
+          sed -i "s|\${SPACES_KEY}|${{ secrets.SPACES_KEY }}|g" project.yml
+          sed -i "s|\${SPACES_SECRET}|${{ secrets.SPACES_SECRET }}|g" project.yml
+          sed -i "s|\${SPACES_REGION}|${{ secrets.SPACES_REGION }}|g" project.yml
+          sed -i "s|\${SPACES_BUCKET}|${{ secrets.SPACES_BUCKET }}|g" project.yml
+
+      - name: Deploy Function
+        run: doctl serverless deploy .

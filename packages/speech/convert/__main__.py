@@ -3,7 +3,6 @@ import boto3
 import uuid
 import requests
 import json
-from datetime import datetime
 
 def main(args):
     # 1. Extract Input
@@ -74,52 +73,37 @@ def main(args):
         file_url = f"https://{bucket_name}.{spaces_region}.digitaloceanspaces.com/{filename}"
 
         # ---------------------------------------------------------
-        # UPDATE STATUS.JSON (HISTORY LOGIC)
+        # UPDATE STATUS.JSON (SIMPLE VERSION)
         # ---------------------------------------------------------
         status_filename = "status.json"
         
         try:
-            # Download existing status.json
+            # Download existing status.json to get the PREVIOUS version number
             s3_response = client.get_object(Bucket=bucket_name, Key=status_filename)
             file_content = s3_response['Body'].read().decode('utf-8')
-            status_data = json.loads(file_content)
+            old_data = json.loads(file_content)
             
-            # MIGRATION CHECK: 
-            # If the file exists but uses the old "single record" format, 
-            # we convert it to the new "history list" format instantly.
-            if "history" not in status_data:
-                # Create a history list containing that one old record
-                old_record = {
-                    "version": status_data.get("version", 0),
-                    "filename": "legacy_file", 
-                    "url": status_data.get("audio_url", "")
-                }
-                status_data = {"history": [old_record]}
-                
+            # Handle potential format mismatch (if switching from history list back to simple)
+            if "history" in old_data:
+                # If the file currently has history, grab the version from the last item
+                current_version = old_data["history"][-1]["version"]
+            else:
+                current_version = old_data.get("version", 0)
+
         except Exception:
-            # If file doesn't exist, start a fresh structure
-            status_data = {"history": []}
+            # If file doesn't exist, start at 0
+            current_version = 0
 
-        # Calculate New Version
-        # We look at the last item in the history list to find the previous version
-        if len(status_data["history"]) > 0:
-            last_version = status_data["history"][-1]["version"]
-            new_version = last_version + 1
-        else:
-            new_version = 1
-
-        # Create the New Entry Object
-        new_entry = {
+        # Calculate New Data
+        new_version = current_version + 1
+        
+        status_data = {
             "version": new_version,
-            "filename": filename,
-            "url": file_url,
-            "created_at": str(datetime.now()) # Added timestamp for convenience
+            "audio_url": file_url
         }
 
-        # Append to the History List
-        status_data["history"].append(new_entry)
-
-        # Upload updated status.json with No-Cache headers
+        # Overwrite status.json with the single new object
+        # Note: We keep CacheControl to prevent browser caching issues
         client.put_object(Bucket=bucket_name, 
                           Key=status_filename, 
                           Body=json.dumps(status_data, indent=2), 
@@ -127,7 +111,7 @@ def main(args):
                           ContentType='application/json',
                           CacheControl='no-cache, no-store, must-revalidate')
 
-        # 5. Return Success (We return just the new URL to the Frontend app)
+        # 5. Return Success
         return {
             "body": {"url": file_url, "version": new_version},
             "headers": response_headers,

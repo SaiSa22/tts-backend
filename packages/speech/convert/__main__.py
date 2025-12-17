@@ -7,7 +7,12 @@ import json
 def main(args):
     # 1. Extract Input
     text = args.get("text", "Hello World")
-    selected_voice = args.get("voice", "en-US-JennyNeural") 
+    selected_voice = args.get("voice", "en-US-JennyNeural")
+    
+    # NEW: Extract the timestamp fields sent from the Frontend
+    # We default to None or 0 if they aren't provided to prevent errors
+    alert_start = args.get("alertStart", None)
+    alert_end = args.get("alertEnd", None)
     
     # 2. Define headers
     response_headers = {
@@ -83,9 +88,8 @@ def main(args):
             file_content = s3_response['Body'].read().decode('utf-8')
             old_data = json.loads(file_content)
             
-            # Handle potential format mismatch (if switching from history list back to simple)
+            # Handle potential format mismatch
             if "history" in old_data:
-                # If the file currently has history, grab the version from the last item
                 current_version = old_data["history"][-1]["version"]
             else:
                 current_version = old_data.get("version", 0)
@@ -97,13 +101,15 @@ def main(args):
         # Calculate New Data
         new_version = current_version + 1
         
+        # NEW: Construct the JSON payload with timestamps included
         status_data = {
             "version": new_version,
+            "alertStart": alert_start,
+            "alertEnd": alert_end,
             "audio_url": file_url
         }
 
         # Overwrite status.json with the single new object
-        # Note: We keep CacheControl to prevent browser caching issues
         client.put_object(Bucket=bucket_name, 
                           Key=status_filename, 
                           Body=json.dumps(status_data, indent=2), 
@@ -113,7 +119,12 @@ def main(args):
 
         # 5. Return Success
         return {
-            "body": {"url": file_url, "version": new_version},
+            "body": {
+                "url": file_url, 
+                "version": new_version,
+                "alertStart": alert_start,
+                "alertEnd": alert_end
+            },
             "headers": response_headers,
             "statusCode": 200
         }

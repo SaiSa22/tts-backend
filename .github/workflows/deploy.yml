@@ -31,6 +31,9 @@ jobs:
           sed -i "s|\${SPACES_SECRET}|${{ secrets.SPACES_SECRET }}|g" project.yml
           sed -i "s|\${SPACES_REGION}|${{ secrets.SPACES_REGION }}|g" project.yml
           sed -i "s|\${SPACES_BUCKET}|${{ secrets.SPACES_BUCKET }}|g" project.yml
+          sed -i "s|\${SUPABASE_URL}|${{ secrets.SUPABASE_URL }}|g" project.yml
+          sed -i "s|\${SUPABASE_KEY}|${{ secrets.SUPABASE_KEY }}|g" project.yml
+          sed -i "s|\${SPACES_ENDPOINT}|${{ secrets.SPACES_ENDPOINT }}|g" project.yml
 
       - name: Deploy Function
         run: doctl serverless deploy .

@@ -3,6 +3,7 @@ parameters: {}
 packages:
   - name: speech
     functions:
+      # 1. Your Existing Python Function (Unchanged)
       - name: convert
         binary: false
         main: ''
@@ -16,3 +17,36 @@ packages:
           SPACES_SECRET: "${SPACES_SECRET}"
           SPACES_REGION: "${SPACES_REGION}"
           SPACES_BUCKET: "${SPACES_BUCKET}"
+
+      # 2. NEW: Scheduler Generator (Node.js)
+      - name: scheduler-generator
+        binary: false
+        main: ''
+        runtime: nodejs:18
+        web: true
+        limits:
+          timeout: 60000      # 60 seconds (Wait for Audio generation)
+          memory: 256         # More memory for file processing
+        environment:
+          # Supabase (You must add these to App Platform Settings)
+          SUPABASE_URL: "${SUPABASE_URL}"
+          SUPABASE_KEY: "${SUPABASE_KEY}"
+          
+          # Mapping your existing App Platform secrets to the new JS code
+          AZURE_KEY: "${AZURE_SPEECH_KEY}"
+          AZURE_REGION: "${AZURE_SPEECH_REGION}"
+          
+          # Spaces Config
+          SPACES_KEY: "${SPACES_KEY}"
+          SPACES_SECRET: "${SPACES_SECRET}"
+          SPACES_BUCKET: "${SPACES_BUCKET}"
+          # Important: JS code expects the full URL (e.g. sfo3.digitaloceanspaces.com)
+          SPACES_ENDPOINT: "${SPACES_ENDPOINT}" 
+
+# 3. NEW: Cron Trigger (The "Heartbeat")
+triggers:
+  - name: hourly-trigger
+    sourceType: scheduler
+    sourceDetails:
+      cron: "0 * * * *"   # Runs at minute 0 of every hour
+    function: speech/scheduler-generator

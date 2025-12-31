@@ -22,7 +22,7 @@ packages:
       - name: scheduler-generator
         binary: false
         main: ''
-        runtime: nodejs:18
+        runtime: nodejs:20
         web: true
         limits:
           timeout: 60000      # 60 seconds (Wait for Audio generation)

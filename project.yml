@@ -42,11 +42,3 @@ packages:
           SPACES_BUCKET: "${SPACES_BUCKET}"
           # Important: JS code expects the full URL (e.g. sfo3.digitaloceanspaces.com)
           SPACES_ENDPOINT: "${SPACES_ENDPOINT}" 
-
-# 3. NEW: Cron Trigger (The "Heartbeat")
-triggers:
-  - name: hourly-trigger
-    sourceType: scheduler
-    sourceDetails:
-      cron: "0 * * * *"   # Runs at minute 0 of every hour
-    function: speech/scheduler-generator

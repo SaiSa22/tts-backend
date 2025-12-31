@@ -2,35 +2,61 @@ const { createClient } = require('@supabase/supabase-js');
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const AWS = require('aws-sdk');
 
-// Initialize Clients
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-const spaces = new AWS.S3({
-    endpoint: new AWS.Endpoint(process.env.SPACES_ENDPOINT),
-    accessKeyId: process.env.SPACES_KEY,
-    secretAccessKey: process.env.SPACES_SECRET
-});
+// We do NOT initialize clients here anymore to prevent startup crashes.
 
 async function main(args) {
+    console.log("Function started. Checking environment variables...");
+
+    // 1. Safe Initialization & Debugging
+    const sbUrl = process.env.SUPABASE_URL;
+    const sbKey = process.env.SUPABASE_KEY;
+    
+    if (!sbUrl || !sbKey) {
+        console.error("CRITICAL ERROR: Missing SUPABASE_URL or SUPABASE_KEY.");
+        return { body: { error: "Configuration Error: Missing Supabase Secrets" } };
+    }
+
+    // Initialize Clients INSIDE the function
+    const supabase = createClient(sbUrl, sbKey);
+    
+    // Check other vars
+    if (!process.env.SPACES_ENDPOINT || !process.env.SPACES_KEY) {
+        console.error("CRITICAL ERROR: Missing Spaces Configuration.");
+        return { body: { error: "Configuration Error: Missing Spaces Secrets" } };
+    }
+
+    const spaces = new AWS.S3({
+        endpoint: new AWS.Endpoint(process.env.SPACES_ENDPOINT),
+        accessKeyId: process.env.SPACES_KEY,
+        secretAccessKey: process.env.SPACES_SECRET
+    });
+
+    // 2. Logic Start
     const now = new Date();
     const currentHour = now.getUTCHours(); 
+    console.log(`Current UTC Hour: ${currentHour}`);
 
-    // 1. Get Users scheduling for this hour
-    // Note: In production, you might need better timezone math (e.g. luxon)
-    // For now, we compare the simple "HH" string from settings to the current UTC hour
-    const { data: users } = await supabase
+    // Fetch users
+    const { data: users, error: userError } = await supabase
         .from('user_settings')
         .select('user_id, fetch_time, timezone');
     
-    // Filter: If user set "14:00", we run when UTC hour is 14.
-    const activeUsers = users.filter(u => parseInt(u.fetch_time.split(':')[0]) === currentHour);
+    if (userError) {
+        console.error("Supabase Error:", userError);
+        return { body: { error: userError.message } };
+    }
+
+    // Filter users (Simple check)
+    // Ensure fetch_time exists to prevent crash on undefined
+    const activeUsers = users.filter(u => u.fetch_time && parseInt(u.fetch_time.split(':')[0]) === currentHour);
+    console.log(`Found ${activeUsers.length} active users for this hour.`);
     
     const results = [];
 
-    // 2. Process each User
+    // 3. Process Users
     for (const user of activeUsers) {
         const todayStr = new Date().toISOString().split('T')[0];
         
-        // Fetch up to 3 events for today
         const { data: events } = await supabase
             .from('events')
             .select('*')
@@ -47,15 +73,12 @@ async function main(args) {
         for (const event of events) {
             let publicUrl = event.audio_url;
 
-            // A. Generate Audio ONLY if not already processed
             if (!event.processed) {
                 try {
+                    console.log(`Generating audio for event ${event.id}...`);
                     const audioBuffer = await generateAzureAudio(event.message);
-                    
-                    // Filename: [USER_ID]_[SEQUENCE].mp3
                     const mp3Filename = `${user.user_id}_0${seq}.mp3`;
 
-                    // Upload MP3 to Spaces
                     await spaces.putObject({
                         Bucket: process.env.SPACES_BUCKET,
                         Key: mp3Filename,
@@ -66,7 +89,6 @@ async function main(args) {
 
                     publicUrl = `https://${process.env.SPACES_BUCKET}.${process.env.SPACES_ENDPOINT}/${mp3Filename}`;
 
-                    // Update DB so we don't regenerate next time
                     await supabase
                         .from('events')
                         .update({ audio_url: publicUrl, processed: true })
@@ -74,14 +96,12 @@ async function main(args) {
 
                 } catch (err) {
                     console.error(`Error processing event ${event.id}:`, err);
-                    continue; // Skip this event if audio generation fails
+                    continue; 
                 }
             }
 
-            // B. Prepare Data for Manifest
             const startParts = event.start_time.split(':');
             const endParts = event.end_time.split(':');
-            
             const startDate = new Date();
             startDate.setHours(parseInt(startParts[0]), parseInt(startParts[1]), 0, 0);
             const endDate = new Date();
@@ -96,7 +116,6 @@ async function main(args) {
             seq++;
         }
 
-        // C. Generate JSON Manifest
         const manifestPayload = {
             version: 51,
             user_id: user.user_id,
@@ -109,7 +128,6 @@ async function main(args) {
             events: manifestEvents
         };
 
-        // D. Upload JSON to Spaces
         const jsonFilename = `${user.user_id}_status.json`;
         await spaces.putObject({
             Bucket: process.env.SPACES_BUCKET,
@@ -117,7 +135,7 @@ async function main(args) {
             Body: JSON.stringify(manifestPayload),
             ACL: 'public-read',
             ContentType: 'application/json',
-            CacheControl: 'max-age=60' // Prevent caching so device gets fresh data
+            CacheControl: 'max-age=60' 
         }).promise();
 
         results.push({ user: user.user_id, manifest: jsonFilename });
@@ -126,7 +144,6 @@ async function main(args) {
     return { body: { processed: results.length, details: results } };
 }
 
-// Helper: Azure Logic
 function generateAzureAudio(text) {
     return new Promise((resolve, reject) => {
         const speechConfig = sdk.SpeechConfig.fromSubscription(process.env.AZURE_KEY, process.env.AZURE_REGION);

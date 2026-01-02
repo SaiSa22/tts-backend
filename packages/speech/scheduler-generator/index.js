@@ -196,6 +196,8 @@ async function main(args) {
 function generateAzureAudio(text) {
     return new Promise((resolve, reject) => {
         const speechConfig = sdk.SpeechConfig.fromSubscription(process.env.AZURE_KEY, process.env.AZURE_REGION);
+
+        speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3;
         const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
         synthesizer.speakTextAsync(text, result => {
             if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {

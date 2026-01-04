@@ -1,7 +1,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const AWS = require('aws-sdk');
-const { DateTime } = require("luxon"); // REQUIRED: Run 'npm install luxon'
+const { DateTime } = require("luxon");
 
 async function main(args) {
     console.log("Function started. Checking environment variables...");
@@ -22,9 +22,6 @@ async function main(args) {
         return { body: { error: "Configuration Error: Missing Spaces Secrets" } };
     }
 
-    // Fix: Ensure we don't double the bucket name in the URL
-    // If your env var has "remindaudio.sfo3...", the SDK might make it "remindaudio.remindaudio.sfo3..."
-    // We strictly use Path Style here to be safe.
     const spaces = new AWS.S3({
         endpoint: new AWS.Endpoint(process.env.SPACES_ENDPOINT),
         accessKeyId: process.env.SPACES_KEY,
@@ -33,7 +30,8 @@ async function main(args) {
         signatureVersion: 'v4'
     });
 
-    // 2. Fetch All Users (We filter manually to handle Timezones correctly)
+    // 2. Fetch All Users
+    // OPTIMIZATION: If triggered manually, we could filter here, but fetching all is fine for now.
     const { data: users, error: userError } = await supabase
         .from('user_settings')
         .select('user_id, fetch_time, timezone');
@@ -60,17 +58,25 @@ async function main(args) {
         const currentLocalHour = userNow.hour;
         const targetFetchHour = parseInt(user.fetch_time.split(':')[0]);
 
-        // B. Is it time to fetch? (Compare Local Hour to Target Hour)
-        // Note: This matches if the current hour in Chicago is 7 AM, etc.
-        if (currentLocalHour !== targetFetchHour) {
-            // Uncomment to debug specific users:
-            // console.log(`Skipping ${user.user_id}: Local ${currentLocalHour} != Target ${targetFetchHour}`);
-            continue; 
+        // --- THE FIX IS HERE ---
+        // Check if this run was triggered manually for this specific user
+        const isManualTrigger = (args.user_id === user.user_id);
+
+        // B. Is it time to fetch?
+        // Logic: If it is NOT a manual trigger AND the hour doesn't match, SKIP.
+        if (!isManualTrigger && currentLocalHour !== targetFetchHour) {
+             // Uncomment to debug:
+             // console.log(`Skipping ${user.user_id}: Local ${currentLocalHour} != Target ${targetFetchHour}`);
+             continue; 
         }
 
-        console.log(`Processing User ${user.user_id}: It is ${currentLocalHour}:00 in ${user.timezone}`);
+        if (isManualTrigger) {
+            console.log(`FORCE REFRESH detected for User ${user.user_id}`);
+        } else {
+            console.log(`Scheduled Run for User ${user.user_id}: It is ${currentLocalHour}:00 in ${user.timezone}`);
+        }
 
-        // C. Determine "Today" for the user (Database Query)
+        // C. Determine "Today" for the user
         const userTodayStr = userNow.toFormat('yyyy-MM-dd');
 
         // --- TIMEZONE LOGIC END ---
@@ -83,8 +89,13 @@ async function main(args) {
             .order('start_time', { ascending: true })
             .limit(5);
 
-        if (!events || events.length === 0) {
+        // If no events, we still might want to update the manifest (to show 0 events), 
+        // but if you prefer skipping empty days, keep the check.
+        // For a Force Refresh, usually we want to proceed even if events is empty to clear the device.
+        if ((!events || events.length === 0)) {
             console.log(`No events found for user ${user.user_id} on ${userTodayStr}`);
+            // OPTIONAL: If you want the device to know there are 0 events, don't continue here.
+            // For now, we will stick to your logic and continue (skip manifest generation).
             continue;
         }
 
@@ -109,10 +120,8 @@ async function main(args) {
                         ContentType: 'audio/mpeg'
                     }).promise();
 
-                    // Construct Public URL (Virtual Host Style Preferred for Production if Certs work, Path Style otherwise)
-                    // We use the Bucket Env var to build the cleaner URL manually if possible
+                    // Construct Public URL
                     publicUrl = `https://${process.env.SPACES_BUCKET}.${process.env.SPACES_ENDPOINT}/${mp3Filename}`;
-                    // If Endpoint already has bucket (common error), strip it:
                     if (process.env.SPACES_ENDPOINT.startsWith(process.env.SPACES_BUCKET)) {
                          publicUrl = `https://${process.env.SPACES_ENDPOINT}/${mp3Filename}`;
                     }
@@ -128,8 +137,7 @@ async function main(args) {
                 }
             }
 
-            // --- TIMESTAMP CALCULATION (Local -> UTC Unix) ---
-            // We parse the HH:MM from the DB using the USER'S Timezone
+            // --- TIMESTAMP CALCULATION ---
             const startParts = event.start_time.split(':');
             const endParts = event.end_time.split(':');
 
@@ -149,16 +157,14 @@ async function main(args) {
 
             manifestEvents.push({
                 sequence: seq,
-                alertStart: Math.floor(eventStartDT.toSeconds()), // UTC Unix Timestamp
-                alertEnd: Math.floor(eventEndDT.toSeconds()),     // UTC Unix Timestamp
+                alertStart: Math.floor(eventStartDT.toSeconds()), 
+                alertEnd: Math.floor(eventEndDT.toSeconds()),      
                 audio_url: publicUrl
             });
             seq++;
         }
 
-        // --- FETCH TIME CONVERSION (Local String -> UTC String) ---
-        // Device is on UTC. User wants to wake at "13:00" Chicago.
-        // We assume they want to wake at the same time tomorrow.
+        // --- FETCH TIME CONVERSION ---
         const nextFetchLocal = userNow.plus({ days: 1 }).set({
             hour: targetFetchHour,
             minute: parseInt(user.fetch_time.split(':')[1] || '0')
@@ -166,11 +172,11 @@ async function main(args) {
         const nextFetchUtcStr = nextFetchLocal.toUTC().toFormat('HH:mm');
 
         const manifestPayload = {
-            version: 52, // Bumping version to force update
+            version: 52, // Bumping version
             user_id: user.user_id,
             generated_at: Math.floor(DateTime.now().toSeconds()),
             settings: {
-                fetch_time: nextFetchUtcStr, // SEND UTC TIME TO DEVICE
+                fetch_time: nextFetchUtcStr,
                 timezone: user.timezone
             },
             event_count: manifestEvents.length,

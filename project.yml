@@ -26,16 +26,7 @@ packages:
         web: true
         limits:
           timeout: 60000      # 60 seconds (Wait for Audio generation)
-          memory: 512         # More memory for file processing
-      
-      # --- NEW TRIGGER SECTION START ---
-        triggers:
-          - name: hourly-check
-            sourceType: scheduler
-            sourceDetails:
-              cron: "0 * * * *" 
-        # --- NEW TRIGGER SECTION END ---
-          
+          memory: 512         # More memory for file processing        
         environment:
           # Supabase (You must add these to App Platform Settings)
           SUPABASE_URL: "${SUPABASE_URL}"
